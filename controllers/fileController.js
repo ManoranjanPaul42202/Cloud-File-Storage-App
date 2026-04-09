@@ -41,7 +41,7 @@ exports.uploadFile = (req, res) => {
       `;
 
       db.query(query, [
-        1, // replace with JWT user id later
+        req.user.id,
         file.originalname,
         key,
         file.size
@@ -70,7 +70,7 @@ exports.uploadFile = (req, res) => {
 
 /* ===================== GET FILES ===================== */
 exports.getFiles = (req, res) => {
-  db.query("SELECT * FROM files", (err, results) => {
+  db.query("SELECT * FROM files WHERE user_id = ?", [req.user.id], (err, results) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ message: "DB error" });
@@ -84,22 +84,31 @@ exports.getFiles = (req, res) => {
 /* ===================== GET DOWNLOAD URL ===================== */
 exports.getDownloadUrl = async (req, res) => {
   try {
-    const fileName = req.query.fileName;
+    const fileId = req.query.fileId;
 
-    if (!fileName) {
-      return res.status(400).json({ message: "fileName required" });
+    if (!fileId) {
+      return res.status(400).json({ message: "fileId required" });
     }
 
-    const command = new GetObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: fileName
-    });
+    db.query(
+      "SELECT s3_key FROM files WHERE id = ? AND user_id = ?",
+      [fileId, req.user.id],
+      async (dbErr, result) => {
+        if (dbErr) return res.status(500).json({ message: "DB error" });
+        if (result.length === 0) return res.status(404).json({ message: "File not found" });
 
-    const url = await getSignedUrl(s3Client, command, {
-      expiresIn: 60
-    });
+        const command = new GetObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: result[0].s3_key
+        });
 
-    res.json({ url });
+        const url = await getSignedUrl(s3Client, command, {
+          expiresIn: 60
+        });
+
+        res.json({ url });
+      }
+    );
 
   } catch (err) {
     console.error("Download Error:", err);
@@ -114,7 +123,10 @@ exports.deleteFile = async (req, res) => {
     const { id } = req.params;
 
     // Step 1: Get file key from DB
-    db.query("SELECT s3_key FROM files WHERE id = ?", [id], async (err, results) => {
+    db.query(
+      "SELECT s3_key FROM files WHERE id = ? AND user_id = ?",
+      [id, req.user.id],
+      async (err, results) => {
       if (err) {
         return res.status(500).json({ message: "DB error" });
       }
@@ -134,7 +146,7 @@ exports.deleteFile = async (req, res) => {
       await s3Client.send(deleteCommand);
 
       // Step 3: Delete from DB
-      db.query("DELETE FROM files WHERE id = ?", [id], (err2) => {
+      db.query("DELETE FROM files WHERE id = ? AND user_id = ?", [id, req.user.id], (err2) => {
         if (err2) {
           return res.status(500).json({ message: "DB delete failed" });
         }
@@ -147,4 +159,38 @@ exports.deleteFile = async (req, res) => {
     console.error(err);
     res.status(500).json({ message: err.message });
   }
+};
+
+exports.getFileById = (req, res) => {
+  const { id } = req.params;
+  db.query(
+    "SELECT * FROM files WHERE id = ? AND user_id = ?",
+    [id, req.user.id],
+    (err, result) => {
+      if (err) return res.status(500).json({ message: "DB error" });
+      if (result.length === 0) return res.status(404).json({ message: "File not found" });
+      res.json(result[0]);
+    }
+  );
+};
+
+exports.renameFile = (req, res) => {
+  const { id } = req.params;
+  const { file_name } = req.body;
+
+  if (!file_name || !file_name.trim()) {
+    return res.status(400).json({ message: "file_name is required" });
+  }
+
+  db.query(
+    "UPDATE files SET file_name = ? WHERE id = ? AND user_id = ?",
+    [file_name.trim(), id, req.user.id],
+    (err, result) => {
+      if (err) return res.status(500).json({ message: "DB error" });
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "File not found" });
+      }
+      res.json({ message: "File renamed successfully" });
+    }
+  );
 };
