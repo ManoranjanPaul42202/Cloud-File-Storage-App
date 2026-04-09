@@ -62,6 +62,12 @@ const getS3SignedUrl = async (key, expiresInSeconds) => {
   return getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
 };
 
+const resolveUserIdByEmail = async (email) => {
+  const rows = await dbQuery("SELECT id FROM users WHERE LOWER(email) = LOWER(?)", [email]);
+  if (rows.length === 0) return null;
+  return rows[0].id;
+};
+
 const canAccessFile = async (userId, file) => {
   if (!file) return false;
   if (file.user_id === userId) return true;
@@ -210,19 +216,28 @@ exports.shareFile = async (req, res) => {
     return res.status(404).json({ message: "File not found" });
   }
 
-  const { shared_with_user_id, permission = "view" } = req.body;
-  if (!shared_with_user_id) {
-    return res.status(400).json({ message: "shared_with_user_id is required" });
+  const { shared_with_user_id, shared_with_email, permission = "view" } = req.body;
+  const email = typeof shared_with_email === "string" ? shared_with_email.trim() : "";
+  let targetUserId = typeof shared_with_user_id === "number"
+    ? shared_with_user_id
+    : Number(shared_with_user_id || NaN);
+
+  if (!Number.isInteger(targetUserId) && email) {
+    targetUserId = await resolveUserIdByEmail(email);
+  }
+
+  if (!Number.isInteger(targetUserId)) {
+    return res.status(400).json({ message: "shared_with_email or shared_with_user_id is required" });
   }
   if (!VALID_PERMISSIONS.includes(permission)) {
     return res.status(400).json({ message: `permission must be one of ${VALID_PERMISSIONS.join(", ")}` });
   }
-  if (shared_with_user_id === req.user.id) {
+  if (targetUserId === req.user.id) {
     return res.status(400).json({ message: "Owner cannot be added as a shared user" });
   }
 
   try {
-    const users = await dbQuery("SELECT id FROM users WHERE id = ?", [shared_with_user_id]);
+    const users = await dbQuery("SELECT id FROM users WHERE id = ?", [targetUserId]);
     if (users.length === 0) {
       return res.status(404).json({ message: "Target user not found" });
     }
@@ -231,14 +246,14 @@ exports.shareFile = async (req, res) => {
       `INSERT INTO file_shares (file_id, shared_with_user_id, permission, created_at)
        VALUES (?, ?, ?, NOW())
        ON DUPLICATE KEY UPDATE permission = VALUES(permission)`,
-      [file.id, shared_with_user_id, permission]
+      [file.id, targetUserId, permission]
     );
 
     if (file.visibility === "private") {
       await dbQuery("UPDATE files SET visibility = 'shared' WHERE id = ?", [file.id]);
     }
 
-    res.json({ message: "File shared successfully", fileId: file.id, shared_with_user_id, permission });
+    res.json({ message: "File shared successfully", fileId: file.id, shared_with_user_id: targetUserId, shared_with_email: email || null, permission });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Could not share file" });
@@ -271,20 +286,29 @@ exports.revokeShare = async (req, res) => {
     return res.status(404).json({ message: "File not found" });
   }
 
-  const userId = req.body.shared_with_user_id || req.query.shared_with_user_id;
-  if (!userId) {
-    return res.status(400).json({ message: "shared_with_user_id is required" });
+  const email = req.body.shared_with_email || req.query.shared_with_email;
+  const userIdParam = req.body.shared_with_user_id || req.query.shared_with_user_id;
+  let targetUserId = typeof userIdParam === "number"
+    ? userIdParam
+    : Number(userIdParam || NaN);
+
+  if (!Number.isInteger(targetUserId) && email) {
+    targetUserId = await resolveUserIdByEmail(email);
+  }
+
+  if (!Number.isInteger(targetUserId)) {
+    return res.status(400).json({ message: "shared_with_email or shared_with_user_id is required" });
   }
 
   try {
     const result = await dbQuery(
       "DELETE FROM file_shares WHERE file_id = ? AND shared_with_user_id = ?",
-      [file.id, userId]
+      [file.id, targetUserId]
     );
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: "Share entry not found" });
     }
-    res.json({ message: "Share revoked", fileId: file.id, shared_with_user_id: userId });
+    res.json({ message: "Share revoked", fileId: file.id, shared_with_user_id: targetUserId, shared_with_email: email || null });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Could not revoke share" });
