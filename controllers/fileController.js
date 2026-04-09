@@ -34,6 +34,21 @@ const dbQuery = (sql, params = []) =>
     });
   });
 
+const resolveUserIdByEmail = async (email) => {
+  const rows = await dbQuery("SELECT id FROM users WHERE email = ?", [email]);
+  return rows.length > 0 ? rows[0].id : null;
+};
+
+const canAccessFile = async (userId, file) => {
+  if (file.user_id === userId) return true; // owner
+  if (file.visibility === "public") return true;
+  if (file.visibility === "shared") {
+    const shares = await dbQuery("SELECT * FROM file_shares WHERE file_id = ? AND shared_with_user_id = ?", [file.id, userId]);
+    return shares.length > 0;
+  }
+  return false;
+};
+
 const normalizeKey = (key) =>
   key
     .split("/")
@@ -245,10 +260,14 @@ exports.shareFile = async (req, res) => {
       return res.status(404).json({ message: "Target user not found" });
     }
 
+    const existingShare = await dbQuery('SELECT * FROM file_shares WHERE file_id = ? AND shared_with_user_id = ?', [file.id, targetUserId]);
+    if (existingShare.length > 0) {
+      return res.status(400).json({ message: 'File already shared with this user' });
+    }
+
     await dbQuery(
       `INSERT INTO file_shares (file_id, shared_with_user_id, permission, created_at)
-       VALUES (?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE permission = VALUES(permission)`,
+       VALUES (?, ?, ?, NOW())`,
       [file.id, targetUserId, permission]
     );
 
