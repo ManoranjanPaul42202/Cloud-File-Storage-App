@@ -198,8 +198,12 @@ exports.getDownloadUrl = async (req, res) => {
     }
 
     if (CLOUDFRONT_URL && CLOUDFRONT_KEY_PAIR_ID && CLOUDFRONT_PRIVATE_KEY) {
-      const signedUrl = getCloudFrontSignedUrl(directUrl, expiresInSeconds);
-      return res.json({ url: signedUrl, expiresInSeconds });
+      try {
+        const signedUrl = getCloudFrontSignedUrl(directUrl, expiresInSeconds);
+        return res.json({ url: signedUrl, expiresInSeconds });
+      } catch (cloudfrontError) {
+        console.warn("CloudFront signing failed, falling back to S3:", cloudfrontError.message);
+      }
     }
 
     const signedS3Url = await getS3SignedUrl(file.s3_key, expiresInSeconds);
