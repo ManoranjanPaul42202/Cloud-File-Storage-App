@@ -34,21 +34,6 @@ const dbQuery = (sql, params = []) =>
     });
   });
 
-const resolveUserIdByEmail = async (email) => {
-  const rows = await dbQuery("SELECT id FROM users WHERE email = ?", [email]);
-  return rows.length > 0 ? rows[0].id : null;
-};
-
-const canAccessFile = async (userId, file) => {
-  if (file.user_id === userId) return true; // owner
-  if (file.visibility === "public") return true;
-  if (file.visibility === "shared") {
-    const shares = await dbQuery("SELECT * FROM file_shares WHERE file_id = ? AND shared_with_user_id = ?", [file.id, userId]);
-    return shares.length > 0;
-  }
-  return false;
-};
-
 const normalizeKey = (key) =>
   key
     .split("/")
