@@ -19,6 +19,16 @@ Full-stack file storage and sharing app built with React + Vite (frontend) and E
 - **Database:** Amazon RDS MySQL
 - **Cloud:** AWS S3, optional AWS CloudFront signed URLs
 
+## 🏗️ Architecture Diagram
+
+   ![Architecture Diagram](./screenshots/architecture.png)
+
+## 📸 Screenshots
+
+   ![Login Page](./screenshots/login.png) 
+   ![Dashboard](./screenshots/dashboard.png) 
+   ![File Upload](./screenshots/upload.png)
+
 ## Project Structure
 
 ```text
@@ -147,7 +157,7 @@ Only needed if you want CloudFront-based signed links instead of direct S3 signe
 
 ```bash
 git clone https://github.com/ManoranjanPaul42202/Cloud-File-Storage-App.git
-cd cloud-based-filestorage
+cd Cloud-File-Storage-App
 ```
 
 ### 2) Install dependencies
